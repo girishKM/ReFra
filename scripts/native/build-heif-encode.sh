@@ -48,7 +48,11 @@ if [ -z "$NDK_VERSION" ] || [ ! -f "$TOOLCHAIN" ] ||
     echo "ERROR: Pinned NDK $NDK_VERSION not found or invalid. Install ndk;$NDK_VERSION." >&2
     exit 1
 fi
-NDK_CLANG="$(ls -d "$NDK_DIR"/toolchains/llvm/prebuilt/*/bin/clang 2>/dev/null | head -n1)"
+NDK_CLANG="$(ls -d "$NDK_DIR"/toolchains/llvm/prebuilt/*/bin/clang.exe 2>/dev/null | head -n1)"
+if [ -z "$NDK_CLANG" ]; then
+    # Non-Windows NDK prebuilts ship the binary without a .exe suffix.
+    NDK_CLANG="$(ls -d "$NDK_DIR"/toolchains/llvm/prebuilt/*/bin/clang 2>/dev/null | head -n1)"
+fi
 if [ -z "$NDK_CLANG" ] || [ ! -x "$NDK_CLANG" ]; then
     echo "ERROR: NDK clang not found under $NDK_DIR" >&2
     exit 1

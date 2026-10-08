@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -60,6 +61,33 @@ val copySegmentModelsTask = tasks.register<Copy>("copySegmentModels") {
 
 val nativeDownloadCache = rootProject.file("build/native-downloads")
 val nativeCommonScript = rootProject.file("scripts/native/native-common.sh")
+// On Windows, Java's process launcher always checks C:\Windows\System32 before PATH,
+// so a bare "bash" resolves to the (usually non-functional, WSL-feature-gated) stub
+// at System32\bash.exe regardless of PATH order. Resolve Git Bash explicitly instead.
+val bashExecutable: String = run {
+    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+    if (!isWindows) return@run "bash"
+    listOf(
+        System.getenv("ProgramFiles") + "\\Git\\bin\\bash.exe",
+        System.getenv("ProgramFiles(x86)") + "\\Git\\bin\\bash.exe"
+    ).firstOrNull { File(it).exists() } ?: "bash"
+}
+
+// "C:/Users/..." makes GNU tar's -f parse "C:" as a remote user@host:path spec
+// ("Cannot connect to C: resolve failed"). MSYS/Git Bash's own "/c/Users/..." form
+// has no colon to collide with that heuristic, so native scripts get this form
+// instead of a raw Windows path on Windows.
+fun String.toBashPath(): String {
+    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
+    if (!isWindows) return this
+    val normalized = replace('\\', '/')
+    val driveMatch = Regex("^([A-Za-z]):/(.*)$").find(normalized)
+    return if (driveMatch != null) {
+        "/${driveMatch.groupValues[1].lowercase()}/${driveMatch.groupValues[2]}"
+    } else {
+        normalized
+    }
+}
 val nativeStacks = listOf(
     Triple("Heif", "build-heif.sh", "heif"),
     Triple("Imgcodec", "build-imgcodec.sh", "imgcodec"),
@@ -92,11 +120,11 @@ val nativeTasksByAbi = nativeAbiTaskSuffixes.mapValues { (abi, suffix) ->
         tasks.register<Exec>("build${stack}Native$suffix") {
             group = "build"
             workingDir(rootProject.projectDir)
-            commandLine("bash", script.absolutePath, abi)
+            commandLine(bashExecutable, script.absolutePath.toBashPath(), abi)
             environment("NATIVE_OFFLINE", "0")
             environment("NATIVE_SOURCE_ARCHIVES_DIR", "")
-            environment("NATIVE_DOWNLOAD_CACHE", nativeDownloadCache.absolutePath)
-            environment("NATIVE_OUTPUT_BASE", file("src/main/cpp").absolutePath)
+            environment("NATIVE_DOWNLOAD_CACHE", nativeDownloadCache.absolutePath.toBashPath())
+            environment("NATIVE_OUTPUT_BASE", file("src/main/cpp").absolutePath.toBashPath())
             nativeSourceOverrides.forEach { environment(it, "") }
             inputs.file(script)
             inputs.file(nativeCommonScript)
